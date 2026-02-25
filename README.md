@@ -40,23 +40,23 @@ a fully functional multi-stage boot loader for x86 systems.
  └──────────────────┬──────────────────────────┘
                     ▼
  ┌──────────────────────────────────────────────┐
- │  ██  STAGE 0 — MBR (512 bytes)          ██  │
- │  ██  ← you are here                     ██  │
- │  Loaded at 0x7C00 by BIOS                   │
- │  Signature: 0x55AA                          │
- └──────────────────┬──────────────────────────┘
+ │   ██  STAGE 0 — MBR (512 bytes)          ██  │
+ │   ██  ← you are here                     ██  │
+ │   Loaded at 0x7C00 by BIOS                   │
+ │   Signature: 0x55AA                          │
+ └───────────────────┬──────────────────────────┘
                     ▼
  ┌──────────────────────────────────────────────┐
- │  ░░  STAGE 1 — VBR / Extended Loader    ░░  │
- │  Partition table parsing                    │
- │  Filesystem-aware sector reads              │
- └──────────────────┬──────────────────────────┘
+ │   ░░  STAGE 1 — VBR / Extended Loader    ░░  │
+ │   Partition table parsing                    │
+ │   Filesystem-aware sector reads              │
+ └───────────────────┬──────────────────────────┘
                     ▼
  ┌──────────────────────────────────────────────┐
- │  ░░  STAGE 2 — Kernel Handoff           ░░  │
- │  Protected mode transition                  │
- │  Kernel loading & execution                 │
- └─────────────────────────────────────────────┘
+ │   ░░  STAGE 2 — Kernel Handoff           ░░  │
+ │   Protected mode transition                  │
+ │   Kernel loading & execution                 │
+ └──────────────────────────────────────────────┘
 ```
 
 ---
