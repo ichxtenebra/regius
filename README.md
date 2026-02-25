@@ -15,7 +15,7 @@
 
 *The royal gateway to your operating environment.*
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-gold.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-gold.svg)](#LICENSE)
 [![Architecture: x86](https://img.shields.io/badge/arch-x86_realmode-blue.svg)](#)
 [![Stage: 0](https://img.shields.io/badge/stage-0%20%2F%20MBR-crimson.svg)](#boot-chain)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#build)
