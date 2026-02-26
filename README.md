@@ -78,7 +78,8 @@ REGIUS is a minimal, hand-crafted **MBR bootstrap** that aims to become a fully 
                 │  ██  STAGE 0 — MBR  (512 bytes)  ██ │
                 │  ██  ← you are here              ██ │
                 │                                     │
-                │  Address:    0x7C00                 │
+                │  Load:       0x7C00                 │
+                │  Relocate:   0x0600                 │
                 │  Signature:  0x55AA                 │
                 │  Output:     "REGIUS" via INT 10h   │
                 │                                     │
@@ -124,7 +125,7 @@ cd regius
 # build the MBR image — no toolchain needed
 ./fiat.sh
 
-# boot it — "REGIUS" appears on screen
+# boot it — screen clears, "REGIUS" appears
 qemu-system-x86_64 -drive format=raw,file=regius.img
 ```
 
@@ -145,7 +146,7 @@ qemu-system-x86_64 -drive format=raw,file=regius.img
 The entire bootloader is forged with a **single line**:
 
 ```bash
-{ printf '\x31\xC0\x8E\xD8\x31\xDB\xBE\x16\x7C\xB4\x0E\xAC\x84\xC0\x74\x04\xCD\x10\xEB\xF7\xEB\xFE\x52\x45\x47\x49\x55\x53\x00'; dd if=/dev/zero bs=1 count=481 2>/dev/null; printf '\x55\xAA'; } > regius.img
+{ printf '\xFA\x31\xC0\x8E\xD8\x8E\xC0\x8E\xD0\xBC\x00\x7C\xFB\xBE\x00\x7C\xBF\x00\x06\xB9\x00\x01\xFC\xF3\xA5\xEA\x1E\x06\x00\x00\xB8\x03\x00\xCD\x10\x31\xDB\xBE\x35\x06\xB4\x0E\xAC\x84\xC0\x74\x04\xCD\x10\xEB\xF7\xEB\xFE\x52\x45\x47\x49\x55\x53\x00'; dd if=/dev/zero bs=1 count=450 2>/dev/null; printf '\x55\xAA'; } > regius.img
 ```
 
 <br>
@@ -177,17 +178,23 @@ The entire bootloader is forged with a **single line**:
 ┌────────────┬───────┬──────────────────────────────────────────┐
 │ Offset     │ Bytes │ Content                                  │
 ├────────────┼───────┼──────────────────────────────────────────┤
-│ 0x000      │   4   │ <b>31 C0 8E D8</b> — xor ax,ax / mov ds,ax      │
-│ 0x004      │   2   │ <b>31 DB</b> — xor bx,bx  (page 0)              │
-│ 0x006      │   3   │ <b>BE 16 7C</b> — mov si, 0x7C16  (→ string)    │
-│ 0x009      │   2   │ <b>B4 0E</b> — mov ah, 0x0E  (teletype func)    │
-│ 0x00B      │   9   │ Print loop: <b>AC 84 C0 74 04 CD 10 EB F7</b>   │
-│ 0x014      │   2   │ <b>EB FE</b> — jmp $  (halt)                    │
-│ 0x016      │   7   │ <b>52 45 47 49 55 53 00</b> — "REGIUS\0"        │
-│ 0x01D      │ 481   │ 00 .. 00  (reserved for boot code)       │
+│ 0x000      │   1   │ <b>FA</b> — cli                                 │
+│ 0x001      │   4   │ <b>31 C0 8E D8</b> — xor ax,ax / mov ds,ax      │
+│ 0x005      │   2   │ <b>8E C0</b> — mov es,ax                        │
+│ 0x007      │   2   │ <b>8E D0</b> — mov ss,ax                        │
+│ 0x009      │   3   │ <b>BC 00 7C</b> — mov sp, 0x7C00                │
+│ 0x00C      │   1   │ <b>FB</b> — sti                                 │
+│ 0x00D      │  12   │ Relocation: <b>rep movsw</b> 0x7C00 → 0x0600    │
+│ 0x019      │   5   │ <b>EA 1E 06 00 00</b> — far jmp to 0x0600+0x1E  │
+│ 0x01E      │   5   │ <b>B8 03 00 CD 10</b> — clear screen (mode 3)   │
+│ 0x023      │   5   │ Setup: <b>xor bx</b> / <b>mov si</b> / <b>mov ah,0Eh</b>      │
+│ 0x02A      │   9   │ Print loop: <b>AC 84 C0 74 04 CD 10 EB F7</b>   │
+│ 0x033      │   2   │ <b>EB FE</b> — jmp $  (halt)                    │
+│ 0x035      │   7   │ <b>52 45 47 49 55 53 00</b> — "REGIUS\0"        │
+│ 0x03C      │ 450   │ 00 .. 00  (reserved for boot code)       │
 │ 0x1FE      │   2   │ <b>55 AA</b> — MBR boot signature               │
 ├────────────┼───────┼──────────────────────────────────────────┤
-│ Total      │  512  │ Valid MBR — prints "REGIUS", then halts  │
+│ Total      │  512  │ Valid MBR — relocates, clears, prints    │
 └────────────┴───────┴──────────────────────────────────────────┘
 </pre>
 
@@ -195,36 +202,72 @@ The entire bootloader is forged with a **single line**:
 
 <br>
 
-### Disassembly — 29 bytes of machine code
+### Memory layout after relocation
 
-```
- Addr   Hex            ASM                 ; Comment
-─────── ────────────── ─────────────────── ──────────────────
- 0x000  31 C0          xor    ax, ax       ; AX = 0
- 0x002  8E D8          mov    ds, ax       ; DS = 0 (flat)
- 0x004  31 DB          xor    bx, bx       ; BH = page 0
- 0x006  BE 16 7C       mov    si, 0x7C16   ; SI → "REGIUS"
- 0x009  B4 0E          mov    ah, 0x0E     ; BIOS teletype
- .loop:
- 0x00B  AC             lodsb              ; AL = [DS:SI++]
- 0x00C  84 C0          test   al, al       ; null terminator?
- 0x00E  74 04          jz     .halt        ; → done
- 0x010  CD 10          int    0x10         ; print char
- 0x012  EB F7          jmp    .loop        ; next char
- .halt:
- 0x014  EB FE          jmp    $            ; infinite halt
- .msg:
- 0x016  52 45 47 49    "REGI"
- 0x01A  55 53 00       "US\0"
-```
+<div align="center">
+
+<pre>
+ 0x0000 ┌──────────────────────┐
+        │  IVT + BDA           │
+ 0x0500 ├──────────────────────┤
+        │  free                │
+                        0x0600 ├──────────────────────┤ ◄── MBR relocated here
+        │  REGIUS (512 bytes)  │
+ 0x0800 ├──────────────────────┤
+        │  free for VBR/Stage1 │
+                    0x7C00 ├──────────────────────┤ ◄── SP (stack top)
+        │  ↓ stack grows down  │
+ 0x7FFF └──────────────────────┘
+</pre>
+
 </div>
 
 <br>
 
+### Disassembly — 60 bytes of machine code
+
+```
+ Addr   Hex               ASM                    ; Comment
+─────── ───────────────── ────────────────────── ──────────────────────
+ 0x000  FA                cli                    ; protect SS:SP setup
+ 0x001  31 C0             xor    ax, ax          ; AX = 0
+ 0x003  8E D8             mov    ds, ax          ; DS = 0
+ 0x005  8E C0             mov    es, ax          ; ES = 0
+ 0x007  8E D0             mov    ss, ax          ; SS = 0
+ 0x009  BC 00 7C          mov    sp, 0x7C00      ; stack below load addr
+ 0x00C  FB                sti                    ; interrupts back on
+ .reloc:
+ 0x00D  BE 00 7C          mov    si, 0x7C00      ; source
+ 0x010  BF 00 06          mov    di, 0x0600      ; destination
+ 0x013  B9 00 01          mov    cx, 0x0100      ; 256 words
+ 0x016  FC                cld                    ; forward
+ 0x017  F3 A5             rep    movsw           ; copy 512 bytes
+ 0x019  EA 1E 06 00 00    jmp    0x0000:0x061E   ; far jump to copy
+ .clear:
+ 0x01E  B8 03 00          mov    ax, 0x0003      ; mode 3 (80×25)
+ 0x021  CD 10             int    0x10            ; clear screen
+ .print:
+ 0x023  31 DB             xor    bx, bx          ; page 0
+ 0x025  BE 35 06          mov    si, 0x0635      ; → "REGIUS\0"
+ 0x028  B4 0E             mov    ah, 0x0E        ; teletype
+ .loop:
+ 0x02A  AC                lodsb                  ; AL = [DS:SI++]
+ 0x02B  84 C0             test   al, al          ; null?
+ 0x02D  74 04             jz     .halt           ; → done
+ 0x02F  CD 10             int    0x10            ; print
+ 0x031  EB F7             jmp    .loop           ; next
+ .halt:
+ 0x033  EB FE             jmp    $               ; infinite halt
+ .msg:
+ 0x035  52 45 47 49       "REGI"
+ 0x039  55 53 00          "US\0"
+```
+
+<br>
+
 > [!NOTE]
-> **INT 10h / AH=0Eh** — BIOS Teletype Output.
-> Prints one character in AL to the current cursor position, advances the cursor automatically.
-> No framebuffer writes. No segment tricks. Six `int 0x10` calls — one per letter.
+> **Self-relocation** frees `0x7C00` for loading a VBR or Stage 1 from disk.
+> Standard MBR pattern — same approach used by MS-DOS, GRUB stage0, and FreeBSD `boot0`.
 
 <br>
 
@@ -240,7 +283,7 @@ The entire bootloader is forged with a **single line**:
 <tr><th>Phase</th><th>Task</th><th>Status</th></tr>
 
 <tr>
-<td rowspan="6"><b>Stage 0</b><br><sub>MBR</sub></td>
+<td rowspan="7"><b>Stage 0</b><br><sub>MBR</sub></td>
 <td>Valid 512-byte MBR with halt-loop stub</td>
 <td>✅</td>
 </tr>
@@ -250,11 +293,15 @@ The entire bootloader is forged with a **single line**:
 </tr>
 <tr>
 <td>Segment register setup (<code>DS</code>, <code>ES</code>, <code>SS:SP</code>)</td>
-<td>✅ <sub>partial</sub></td>
+<td>✅</td>
 </tr>
 <tr>
-<td>MBR self-relocation from <code>0x7C00</code></td>
-<td>⬜</td>
+<td>MBR self-relocation <code>0x7C00 → 0x0600</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Screen clear via <code>INT 10h</code> AH=00h mode 3</td>
+<td>✅</td>
 </tr>
 <tr>
 <td>Partition table parsing (MBR / GPT)</td>
@@ -337,7 +384,7 @@ This project is licensed under the [MIT License](LICENSE).
 ╔═════════════════════════════════════════════════╗
 ║                                                 ║
 ║     Built from nothing.  Byte by byte.          ║
-║     Now it speaks.                              ║
+║     Now it moves.  Now it speaks.               ║
 ║                                                 ║
 ╚═════════════════════════════════════════════════╝
 </pre>
