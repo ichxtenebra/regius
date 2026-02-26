@@ -78,8 +78,9 @@ REGIUS is a minimal, hand-crafted **MBR bootstrap** that aims to become a fully 
                 │  ██  STAGE 0 — MBR  (512 bytes)  ██ │
                 │  ██  ← you are here              ██ │
                 │                                     │
-                │  Address:    0x7C00                  │
-                │  Signature:  0x55AA                  │
+                │  Address:    0x7C00                 │
+                │  Signature:  0x55AA                 │
+                │  Output:     "REGIUS" via INT 10h   │
                 │                                     │
                 └────────────────┬────────────────────┘
             │
@@ -88,8 +89,8 @@ REGIUS is a minimal, hand-crafted **MBR bootstrap** that aims to become a fully 
                 │                                     │
                 │  ░░  STAGE 1 — VBR / Loader      ░░ │
                 │                                     │
-                │  Partition table parsing             │
-                │  Filesystem-aware sector reads       │
+                │  Partition table parsing            │
+                │  Filesystem-aware sector reads      │
                 │                                     │
                 └────────────────┬────────────────────┘
             │
@@ -98,8 +99,8 @@ REGIUS is a minimal, hand-crafted **MBR bootstrap** that aims to become a fully 
                 │                                     │
                 │  ░░  STAGE 2 — Kernel Handoff    ░░ │
                 │                                     │
-                │  Protected mode transition           │
-                │  Kernel loading &amp; execution          │
+                │  Protected mode transition          │
+                │  Kernel loading &amp; execution         │
                 │                                     │
                 └─────────────────────────────────────┘
 
@@ -123,8 +124,8 @@ cd regius
 # build the MBR image — no toolchain needed
 ./fiat.sh
 
-# boot it
-qemu-system-x86_64 regius.img
+# boot it — "REGIUS" appears on screen
+qemu-system-x86_64 -drive format=raw,file=regius.img
 ```
 
 > [!TIP]
@@ -144,7 +145,7 @@ qemu-system-x86_64 regius.img
 The entire bootloader is forged with a **single line**:
 
 ```bash
-{ printf '\xEB\xFE'; dd if=/dev/zero bs=1 count=508 2>/dev/null; printf '\x55\xAA'; } > regius.img
+{ printf '\x31\xC0\x8E\xD8\x31\xDB\xBE\x16\x7C\xB4\x0E\xAC\x84\xC0\x74\x04\xCD\x10\xEB\xF7\xEB\xFE\x52\x45\x47\x49\x55\x53\x00'; dd if=/dev/zero bs=1 count=481 2>/dev/null; printf '\x55\xAA'; } > regius.img
 ```
 
 <br>
@@ -173,25 +174,57 @@ The entire bootloader is forged with a **single line**:
 <div align="center">
 
 <pre>
-┌────────────┬───────┬──────────────────────────────────────┐
-│ Offset     │ Bytes │ Content                              │
-├────────────┼───────┼──────────────────────────────────────┤
-│ 0x000      │   2   │ <b>EB FE</b> — jmp short $ (infinite loop)  │
-│ 0x002      │ 508   │ 00 .. 00  (reserved for boot code)   │
-│ 0x1FE      │   2   │ <b>55 AA</b> — MBR boot signature           │
-├────────────┼───────┼──────────────────────────────────────┤
-│ Total      │ 512   │ Valid Master Boot Record              │
-└────────────┴───────┴──────────────────────────────────────┘
+┌────────────┬───────┬──────────────────────────────────────────┐
+│ Offset     │ Bytes │ Content                                  │
+├────────────┼───────┼──────────────────────────────────────────┤
+│ 0x000      │   4   │ <b>31 C0 8E D8</b> — xor ax,ax / mov ds,ax      │
+│ 0x004      │   2   │ <b>31 DB</b> — xor bx,bx  (page 0)              │
+│ 0x006      │   3   │ <b>BE 16 7C</b> — mov si, 0x7C16  (→ string)    │
+│ 0x009      │   2   │ <b>B4 0E</b> — mov ah, 0x0E  (teletype func)    │
+│ 0x00B      │   9   │ Print loop: <b>AC 84 C0 74 04 CD 10 EB F7</b>   │
+│ 0x014      │   2   │ <b>EB FE</b> — jmp $  (halt)                    │
+│ 0x016      │   7   │ <b>52 45 47 49 55 53 00</b> — "REGIUS\0"        │
+│ 0x01D      │ 481   │ 00 .. 00  (reserved for boot code)       │
+│ 0x1FE      │   2   │ <b>55 AA</b> — MBR boot signature               │
+├────────────┼───────┼──────────────────────────────────────────┤
+│ Total      │  512  │ Valid MBR — prints "REGIUS", then halts  │
+└────────────┴───────┴──────────────────────────────────────────┘
 </pre>
 
 </div>
 
 <br>
 
+### Disassembly — 29 bytes of machine code
+
+```
+ Addr   Hex            ASM                 ; Comment
+─────── ────────────── ─────────────────── ──────────────────
+ 0x000  31 C0          xor    ax, ax       ; AX = 0
+ 0x002  8E D8          mov    ds, ax       ; DS = 0 (flat)
+ 0x004  31 DB          xor    bx, bx       ; BH = page 0
+ 0x006  BE 16 7C       mov    si, 0x7C16   ; SI → "REGIUS"
+ 0x009  B4 0E          mov    ah, 0x0E     ; BIOS teletype
+ .loop:
+ 0x00B  AC             lodsb              ; AL = [DS:SI++]
+ 0x00C  84 C0          test   al, al       ; null terminator?
+ 0x00E  74 04          jz     .halt        ; → done
+ 0x010  CD 10          int    0x10         ; print char
+ 0x012  EB F7          jmp    .loop        ; next char
+ .halt:
+ 0x014  EB FE          jmp    $            ; infinite halt
+ .msg:
+ 0x016  52 45 47 49    "REGI"
+ 0x01A  55 53 00       "US\0"
+```
+</div>
+
+<br>
+
 > [!NOTE]
-> **Why `EB FE`?** &nbsp; It encodes `jmp short $` — the CPU calculates
-> the jump offset as −2 (back to itself) and loops forever.
-> Two bytes. Nothing wasted. The smallest valid bootloader possible.
+> **INT 10h / AH=0Eh** — BIOS Teletype Output.
+> Prints one character in AL to the current cursor position, advances the cursor automatically.
+> No framebuffer writes. No segment tricks. Six `int 0x10` calls — one per letter.
 
 <br>
 
@@ -207,13 +240,17 @@ The entire bootloader is forged with a **single line**:
 <tr><th>Phase</th><th>Task</th><th>Status</th></tr>
 
 <tr>
-<td rowspan="5"><b>Stage 0</b><br><sub>MBR</sub></td>
+<td rowspan="6"><b>Stage 0</b><br><sub>MBR</sub></td>
 <td>Valid 512-byte MBR with halt-loop stub</td>
 <td>✅</td>
 </tr>
 <tr>
+<td>BIOS text output — <code>"REGIUS"</code> via <code>INT 10h</code> AH=0Eh</td>
+<td>✅</td>
+</tr>
+<tr>
 <td>Segment register setup (<code>DS</code>, <code>ES</code>, <code>SS:SP</code>)</td>
-<td>⬜</td>
+<td>✅ <sub>partial</sub></td>
 </tr>
 <tr>
 <td>MBR self-relocation from <code>0x7C00</code></td>
@@ -285,7 +322,7 @@ This project is licensed under the [MIT License](LICENSE).
 > ```
 > MIT License — do whatever you want.
 > Just don't blame us if it formats your disk.
-> It won't. It literally does nothing. Yet.
+> It won't. It just prints REGIUS and halts.
 > ```
 
 <br>
@@ -300,6 +337,7 @@ This project is licensed under the [MIT License](LICENSE).
 ╔═════════════════════════════════════════════════╗
 ║                                                 ║
 ║     Built from nothing.  Byte by byte.          ║
+║     Now it speaks.                              ║
 ║                                                 ║
 ╚═════════════════════════════════════════════════╝
 </pre>
